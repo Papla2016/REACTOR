@@ -23,6 +23,7 @@ def health():
     return {"status": "ok"}
 
 
+
 # Роутеры уже экспортируются как экземпляры APIRouter из пакета routers
 # и могут быть напрямую подключены к приложению.
 app.include_router(auth)

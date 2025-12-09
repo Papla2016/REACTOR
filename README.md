@@ -57,6 +57,7 @@ Vite автоматически подхватывает переменные `V
 
    # Windows (cmd)
    set PYTHONPATH=backend && python backend\init_db.py
+
    ```
    Создаётся схема и пользователь `doctor@example.com` / `doctor123` (пароль хэшируется).
 
@@ -72,6 +73,7 @@ Vite автоматически подхватывает переменные `V
    # Значения APP_HOST/APP_PORT берутся из .env автоматически, поэтому
    # указываем только путь до env-файла и включаем hot-reload
    uvicorn app.main:app --env-file ../.env --reload --host 0.0.0.0 --port 8000
+ main
    ```
 3. Базовые эндпоинты:
    - `GET /health` — проверка доступности.
