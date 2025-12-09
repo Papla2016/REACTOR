@@ -23,6 +23,9 @@ def health():
     return {"status": "ok"}
 
 
-app.include_router(auth.router)
-app.include_router(ner.router)
-app.include_router(reports.router)
+
+# Роутеры уже экспортируются как экземпляры APIRouter из пакета routers
+# и могут быть напрямую подключены к приложению.
+app.include_router(auth)
+app.include_router(ner)
+app.include_router(reports)
