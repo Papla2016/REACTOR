@@ -1,6 +1,13 @@
 """Маршруты для работы с NER (Natasha + regexp)."""
 from fastapi import APIRouter, HTTPException
-from natasha import Doc, MorphVocab, NewsNERTagger, NewsEmbedding, NewsMorphTagger
+from natasha import (
+    Doc,
+    MorphVocab,
+    NewsEmbedding,
+    NewsMorphTagger,
+    NewsNERTagger,
+    Segmenter,
+)
 
 from ..schemas import NERRequest, NERResponse, NEREntity
 from ..utils.patterns import find_with_regex
@@ -9,6 +16,7 @@ router = APIRouter(prefix="/ner", tags=["ner"])
 
 morph_vocab = MorphVocab()
 emb = NewsEmbedding()
+segmenter = Segmenter()
 morph_tagger = NewsMorphTagger(emb)
 ner_tagger = NewsNERTagger(emb)
 
@@ -19,7 +27,8 @@ def process_text(payload: NERRequest) -> NERResponse:
         raise HTTPException(status_code=400, detail="Текст отчёта не передан")
 
     doc = Doc(payload.text)
-    doc.segment(morph_tagger)
+    doc.segment(segmenter)
+    doc.tag_morph(morph_tagger)
     doc.tag_ner(ner_tagger)
 
     entities: list[NEREntity] = []
