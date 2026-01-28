@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db import SessionLocal, engine, Base
 from app import models
-from app.auth import hash_password
+from app.auth import hash_password, verify_password
 from app.routers import auth, cases, oauth, patients, files, deidentify
 
 settings = get_settings()
@@ -46,20 +46,28 @@ def ensure_sqlite_dir():
 def seed_demo_users():
     db: Session = SessionLocal()
     try:
-        if db.query(models.User).count() == 0:
-            doctor = models.User(
-                email="doctor@example.com",
-                password_hash=hash_password("doctor123"),
-                role=models.UserRole.DOCTOR,
-                full_name="Иванов Иван Иванович",
-            )
-            patient = models.User(
-                email="patient@example.com",
-                password_hash=hash_password("patient123"),
-                role=models.UserRole.PATIENT,
-                full_name="Петров Петр Петрович",
-            )
-            db.add_all([doctor, patient])
-            db.commit()
+        doctor = db.query(models.User).filter(models.User.email == "doctor@example.com").first()
+        if not doctor:
+            doctor = models.User(email="doctor@example.com")
+            db.add(doctor)
+        doctor.role = models.UserRole.DOCTOR
+        doctor.full_name = "Иванов Иван Иванович"
+        if not doctor.password_hash or not doctor.password_hash.startswith("$pbkdf2-sha256$"):
+            doctor.password_hash = hash_password("doctor123")
+        elif not verify_password("doctor123", doctor.password_hash):
+            doctor.password_hash = hash_password("doctor123")
+
+        patient = db.query(models.User).filter(models.User.email == "patient@example.com").first()
+        if not patient:
+            patient = models.User(email="patient@example.com")
+            db.add(patient)
+        patient.role = models.UserRole.PATIENT
+        patient.full_name = "Петров Петр Петрович"
+        if not patient.password_hash or not patient.password_hash.startswith("$pbkdf2-sha256$"):
+            patient.password_hash = hash_password("patient123")
+        elif not verify_password("patient123", patient.password_hash):
+            patient.password_hash = hash_password("patient123")
+
+        db.commit()
     finally:
         db.close()
