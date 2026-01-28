@@ -1,114 +1,84 @@
-"""Pydantic-схемы для запросов и ответов."""
-from datetime import date, datetime
-from typing import List, Optional
+from datetime import date
 from pydantic import BaseModel, EmailStr, Field
+from typing import List, Optional
+from app.models import UserRole
 
 
-class HealthResponse(BaseModel):
-    status: str
+class TokenPair(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
 
 
-class MedicCreate(BaseModel):
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=6)
+    role: UserRole
     full_name: str
+
+
+class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
 
-class MedicOut(BaseModel):
+class UserResponse(BaseModel):
+    id: int
+    email: EmailStr
+    role: UserRole
+    full_name: str
+
+
+class PatientCreate(BaseModel):
+    full_name: str
+    email: Optional[EmailStr] = None
+
+
+class PatientOption(BaseModel):
     id: int
     full_name: str
-    email: EmailStr
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
+    email: EmailStr | None
 
 
-class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
+class MarkerCreate(BaseModel):
+    marker: str
+    type: str
+    original_value: str
 
 
-class LoginResponse(BaseModel):
-    medic: MedicOut
-    token: str
-
-
-class PatientBase(BaseModel):
-    full_name: str
-    date_of_birth: Optional[date] = None
-
-
-class PatientCreate(PatientBase):
-    pass
-
-
-class PatientOut(PatientBase):
-    id: int
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class ReportCreate(BaseModel):
-    medic_id: int
-    patient_full_name: str
-    patient_date_of_birth: Optional[date] = None
-    raw_text: str
-    viewer_full_name: str
-
-
-class ReportOut(BaseModel):
-    id: int
-    medic_id: int
-    patient: Optional[PatientOut]
-    raw_text: str
-    processed_text: Optional[str]
-    viewer_full_name: str
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class EntityBase(BaseModel):
-    start_offset: int = Field(ge=0)
-    end_offset: int = Field(gt=0)
-    value: str
-    entity_type: str
-    source: str = "auto"
-    created_by: Optional[str] = None
-
-
-class EntityCreate(EntityBase):
-    pass
-
-
-class EntityOut(EntityBase):
-    id: int
-    report_id: int
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class ReportWithEntities(ReportOut):
-    entities: List[EntityOut]
-
-
-class NERRequest(BaseModel):
+class DeidentifyRequest(BaseModel):
     text: str
 
 
-class NEREntity(BaseModel):
-    start: int
-    end: int
-    value: str
-    entity_type: str
-    source: str = "auto"
+class DeidentifyResponse(BaseModel):
+    masked_text: str
+    markers: List[MarkerCreate]
 
 
-class NERResponse(BaseModel):
-    entities: List[NEREntity]
+class CaseCreate(BaseModel):
+    patient_id: int
+    patient_name: str
+    doctor_name: str
+    visit_date: date
+    disease: str
+    direction: str
+    notes: str
+    analysis_result: str
+    masked_text: str
+    markers: List[MarkerCreate]
+
+
+class CaseSummary(BaseModel):
+    id: int
+    patient_name: str
+    doctor_name: str
+    visit_date: date
+    disease: str
+    direction: str
+
+
+class CaseDetail(CaseSummary):
+    notes: str
+    analysis_result: str
+    text: str
+    markers: List[MarkerCreate]
