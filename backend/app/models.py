@@ -1,61 +1,75 @@
-"""Описание таблиц проекта."""
+import enum
 from datetime import datetime
-from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import declarative_base, relationship
-
-Base = declarative_base()
-
-
-class Medic(Base):
-    __tablename__ = "medics"
-
-    id = Column(Integer, primary_key=True, index=True)
-    full_name = Column(String(255), nullable=False)
-    email = Column(String(255), unique=True, index=True, nullable=False)
-    password_hash = Column(String(255), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-
-    reports = relationship("ExamReport", back_populates="medic")
+from sqlalchemy import String, DateTime, Enum, Integer, ForeignKey, Text, Date
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from app.db import Base
 
 
-class Patient(Base):
-    __tablename__ = "patients"
-
-    id = Column(Integer, primary_key=True, index=True)
-    full_name = Column(String(255), nullable=False)
-    date_of_birth = Column(Date)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-
-    reports = relationship("ExamReport", back_populates="patient")
+class UserRole(str, enum.Enum):
+    PATIENT = "PATIENT"
+    DOCTOR = "DOCTOR"
 
 
-class ExamReport(Base):
-    __tablename__ = "exam_reports"
+class User(Base):
+    __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
-    medic_id = Column(Integer, ForeignKey("medics.id"), nullable=False)
-    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=True)
-    raw_text = Column(Text, nullable=False)
-    processed_text = Column(Text, nullable=True)
-    viewer_full_name = Column(String(255), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    role: Mapped[UserRole] = mapped_column(Enum(UserRole), index=True)
+    full_name: Mapped[str] = mapped_column(String(255))
+    oauth_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    oauth_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    medic = relationship("Medic", back_populates="reports")
-    patient = relationship("Patient", back_populates="reports")
-    entities = relationship("Entity", back_populates="report", cascade="all, delete")
+    cases_as_patient: Mapped[list["MedicalCase"]] = relationship(
+        back_populates="patient", foreign_keys="MedicalCase.patient_id"
+    )
+    cases_as_doctor: Mapped[list["MedicalCase"]] = relationship(
+        back_populates="doctor", foreign_keys="MedicalCase.doctor_id"
+    )
 
 
-class Entity(Base):
-    __tablename__ = "entities"
+class MedicalCase(Base):
+    __tablename__ = "medical_cases"
 
-    id = Column(Integer, primary_key=True, index=True)
-    report_id = Column(Integer, ForeignKey("exam_reports.id"), nullable=False)
-    start_offset = Column(Integer, nullable=False)
-    end_offset = Column(Integer, nullable=False)
-    value = Column(String(512), nullable=False)
-    entity_type = Column(String(64), nullable=False)
-    source = Column(String(32), default="auto", nullable=False)
-    created_by = Column(String(128))
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    doctor_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    patient_name: Mapped[str] = mapped_column(String(255))
+    doctor_name: Mapped[str] = mapped_column(String(255))
+    visit_date: Mapped[datetime] = mapped_column(Date)
+    disease: Mapped[str] = mapped_column(String(255))
+    direction: Mapped[str] = mapped_column(String(255))
+    notes: Mapped[str] = mapped_column(Text)
+    analysis_result: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    report = relationship("ExamReport", back_populates="entities")
+    patient: Mapped[User] = relationship(back_populates="cases_as_patient", foreign_keys=[patient_id])
+    doctor: Mapped[User] = relationship(back_populates="cases_as_doctor", foreign_keys=[doctor_id])
+    case_text: Mapped["CaseText"] = relationship(back_populates="medical_case", uselist=False)
+    markers: Mapped[list["Marker"]] = relationship(back_populates="medical_case", cascade="all, delete-orphan")
+
+
+class CaseText(Base):
+    __tablename__ = "case_texts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    case_id: Mapped[int] = mapped_column(ForeignKey("medical_cases.id"), unique=True)
+    masked_text: Mapped[str] = mapped_column(Text)
+
+    medical_case: Mapped[MedicalCase] = relationship(back_populates="case_text")
+
+
+class Marker(Base):
+    __tablename__ = "markers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    case_id: Mapped[int] = mapped_column(ForeignKey("medical_cases.id"))
+    marker: Mapped[str] = mapped_column(String(50))
+    type: Mapped[str] = mapped_column(String(50))
+    original_value: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    medical_case: Mapped[MedicalCase] = relationship(back_populates="markers")

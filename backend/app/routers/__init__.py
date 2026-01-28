@@ -1,6 +1,3 @@
-"""Роутеры приложения."""
-from .auth import router as auth
-from .ner import router as ner
-from .reports import router as reports
+from . import auth, cases, oauth, patients, files, deidentify
 
-__all__ = ["auth", "ner", "reports"]
+__all__ = ["auth", "cases", "oauth", "patients", "files", "deidentify"]
