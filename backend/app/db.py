@@ -1,16 +1,15 @@
-"""Подключение к БД и сессия SQLAlchemy."""
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from app.core.config import get_settings
 
-from .config import get_settings
+
+class Base(DeclarativeBase):
+    pass
+
 
 settings = get_settings()
-DATABASE_URL = (
-    f"postgresql+psycopg2://{settings.db_user}:{settings.db_password}@{settings.db_host}:{settings.db_port}/{settings.db_name}"
-)
-
-engine = create_engine(DATABASE_URL, echo=False, future=True)
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 
 
 def get_db():
