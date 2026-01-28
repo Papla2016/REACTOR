@@ -9,7 +9,7 @@ from app.db import get_db
 from app.core.config import get_settings
 from app import models
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 settings = get_settings()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
