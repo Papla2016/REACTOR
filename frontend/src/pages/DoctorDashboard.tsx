@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import api from '../api/client'
 
 type Marker = {
   marker: string
   type: string
   original_value: string
+  source?: 'AUTO' | 'MANUAL'
 }
 
 type CaseSummary = {
@@ -22,7 +23,24 @@ type PatientOption = {
   email?: string
 }
 
+type DoctorDraft = {
+  patientQuery: string
+  newPatientEmail: string
+  doctorName: string
+  patientName: string
+  visitDate: string
+  disease: string
+  direction: string
+  notes: string
+  analysisResult: string
+  text: string
+  maskedText: string
+  markers: Marker[]
+  selectedPatient: PatientOption | null
+}
+
 const markerTypes = ['NAME', 'PASSPORT', 'PHONE', 'EMAIL', 'CITY', 'OTHER']
+const draftKey = 'doctor_case_draft_v1'
 
 export default function DoctorDashboard() {
   const [cases, setCases] = useState<CaseSummary[]>([])
@@ -59,6 +77,48 @@ export default function DoctorDashboard() {
   useEffect(() => {
     loadCases()
   }, [])
+
+  useEffect(() => {
+    const raw = localStorage.getItem(draftKey)
+    if (!raw) return
+    try {
+      const draft = JSON.parse(raw) as DoctorDraft
+      setPatientQuery(draft.patientQuery || '')
+      setNewPatientEmail(draft.newPatientEmail || '')
+      setDoctorName(draft.doctorName || '')
+      setPatientName(draft.patientName || '')
+      setVisitDate(draft.visitDate || '')
+      setDisease(draft.disease || '')
+      setDirection(draft.direction || '')
+      setNotes(draft.notes || '')
+      setAnalysisResult(draft.analysisResult || '')
+      setText(draft.text || '')
+      setMaskedText(draft.maskedText || '')
+      setMarkers(draft.markers || [])
+      setSelectedPatient(draft.selectedPatient || null)
+    } catch {
+      localStorage.removeItem(draftKey)
+    }
+  }, [])
+
+  useEffect(() => {
+    const draft: DoctorDraft = {
+      patientQuery,
+      newPatientEmail,
+      doctorName,
+      patientName,
+      visitDate,
+      disease,
+      direction,
+      notes,
+      analysisResult,
+      text,
+      maskedText,
+      markers,
+      selectedPatient,
+    }
+    localStorage.setItem(draftKey, JSON.stringify(draft))
+  }, [patientQuery, newPatientEmail, doctorName, patientName, visitDate, disease, direction, notes, analysisResult, text, maskedText, markers, selectedPatient])
 
   useEffect(() => {
     if (patientQuery.trim().length < 2) {
@@ -100,14 +160,14 @@ export default function DoctorDashboard() {
     const updatedText = text.slice(0, start) + marker + text.slice(end)
     setText(updatedText)
     setMaskedText(updatedText)
-    setMarkers([...markers, { marker, type: selectedType, original_value: selectedText }])
+    setMarkers([...markers, { marker, type: selectedType, original_value: selectedText, source: 'MANUAL' }])
     setContextMenu(null)
   }
 
   const autoDeidentify = async () => {
     const res = await api.post('/deidentify', { text })
     setMaskedText(res.data.masked_text)
-    setMarkers(res.data.markers)
+    setMarkers(res.data.markers.map((item: Marker) => ({ ...item, source: 'AUTO' })))
   }
 
   const createPatient = async () => {
@@ -117,6 +177,14 @@ export default function DoctorDashboard() {
     setPatientQuery(res.data.full_name)
     setPatientOptions([])
   }
+
+  const markerGroups = useMemo(() => {
+    const grouped = { AUTO: [] as Marker[], MANUAL: [] as Marker[] }
+    for (const marker of markers) {
+      grouped[marker.source === 'MANUAL' ? 'MANUAL' : 'AUTO'].push(marker)
+    }
+    return grouped
+  }, [markers])
 
   const submitCase = async () => {
     if (!selectedPatient) return
@@ -130,11 +198,12 @@ export default function DoctorDashboard() {
       notes,
       analysis_result: analysisResult,
       masked_text: maskedText || text,
-      markers,
+      markers: markers.map(({ marker, type, original_value }) => ({ marker, type, original_value })),
     })
     setText('')
     setMaskedText('')
     setMarkers([])
+    localStorage.removeItem(draftKey)
     loadCases()
   }
 
@@ -214,6 +283,25 @@ export default function DoctorDashboard() {
             onContextMenu={handleContextMenu}
           />
         </div>
+        <div style={{ marginTop: 16 }}>
+          <label>Обезличенный текст</label>
+          <textarea rows={6} value={maskedText} readOnly />
+        </div>
+        {markers.length > 0 && (
+          <details style={{ marginTop: 16 }}>
+            <summary>Меню обезличивания (авто / ручной)</summary>
+            <div className="form-grid" style={{ marginTop: 8 }}>
+              <div>
+                <strong>Авто</strong>
+                {markerGroups.AUTO.length === 0 ? <p>Нет</p> : markerGroups.AUTO.map((item) => <div key={item.marker}>{item.marker} → {item.original_value}</div>)}
+              </div>
+              <div>
+                <strong>Ручной</strong>
+                {markerGroups.MANUAL.length === 0 ? <p>Нет</p> : markerGroups.MANUAL.map((item) => <div key={item.marker}>{item.marker} → {item.original_value}</div>)}
+              </div>
+            </div>
+          </details>
+        )}
         {contextMenu && (
           <div className="context-menu" style={{ top: contextMenu.y, left: contextMenu.x }}>
             <div style={{ padding: 10 }}>
