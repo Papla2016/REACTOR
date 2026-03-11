@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.db import get_db
 from app import models, schemas
-from app.auth import hash_password, verify_password, create_access_token, create_refresh_token
+from app.auth import hash_password, verify_password, create_access_token, create_refresh_token, get_current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -58,3 +58,8 @@ def refresh(payload: dict, db: Session = Depends(get_db)):
         access_token=create_access_token(user),
         refresh_token=create_refresh_token(user),
     )
+
+
+@router.get("/me", response_model=schemas.UserResponse)
+def me(user: models.User = Depends(get_current_user)):
+    return schemas.UserResponse(id=user.id, email=user.email, role=user.role, full_name=user.full_name)

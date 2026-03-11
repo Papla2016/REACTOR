@@ -16,11 +16,16 @@ PATTERNS = {
 def deidentify_text(text: str) -> tuple[str, List[MarkerCreate]]:
     markers: List[MarkerCreate] = []
     counters = defaultdict(int)
+    marker_by_value: dict[tuple[str, str], str] = {}
 
     def replace(match: re.Match, marker_type: str) -> str:
         value = match.group(0)
+        marker_key = (marker_type, value)
+        if marker_key in marker_by_value:
+            return marker_by_value[marker_key]
         counters[marker_type] += 1
         marker = f"{marker_type}{counters[marker_type]}"
+        marker_by_value[marker_key] = marker
         markers.append(MarkerCreate(marker=marker, type=marker_type, original_value=value))
         return marker
 

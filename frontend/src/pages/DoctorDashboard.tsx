@@ -17,6 +17,13 @@ type CaseSummary = {
   direction: string
 }
 
+type CaseDetail = CaseSummary & {
+  notes: string
+  analysis_result: string
+  text: string
+  markers: Marker[]
+}
+
 type PatientOption = {
   id: number
   full_name: string
@@ -26,8 +33,6 @@ type PatientOption = {
 type DoctorDraft = {
   patientQuery: string
   newPatientEmail: string
-  doctorName: string
-  patientName: string
   visitDate: string
   disease: string
   direction: string
@@ -44,12 +49,12 @@ const draftKey = 'doctor_case_draft_v1'
 
 export default function DoctorDashboard() {
   const [cases, setCases] = useState<CaseSummary[]>([])
+  const [selectedCase, setSelectedCase] = useState<CaseDetail | null>(null)
   const [patientQuery, setPatientQuery] = useState('')
   const [patientOptions, setPatientOptions] = useState<PatientOption[]>([])
   const [selectedPatient, setSelectedPatient] = useState<PatientOption | null>(null)
   const [newPatientEmail, setNewPatientEmail] = useState('')
   const [doctorName, setDoctorName] = useState('')
-  const [patientName, setPatientName] = useState('')
   const [visitDate, setVisitDate] = useState('')
   const [disease, setDisease] = useState('')
   const [direction, setDirection] = useState('')
@@ -58,10 +63,13 @@ export default function DoctorDashboard() {
   const [text, setText] = useState('')
   const [maskedText, setMaskedText] = useState('')
   const [markers, setMarkers] = useState<Marker[]>([])
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
-  const [selectedText, setSelectedText] = useState('')
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; target: 'text' | 'masked' } | null>(null)
+  const [selectionRange, setSelectionRange] = useState<{ start: number; end: number; value: string } | null>(null)
   const [selectedType, setSelectedType] = useState('NAME')
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const [selectedExistingMarker, setSelectedExistingMarker] = useState('')
+  const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
+  const maskedTextAreaRef = useRef<HTMLTextAreaElement | null>(null)
+  const contextMenuRef = useRef<HTMLDivElement | null>(null)
 
   const markerCounters = markers.reduce<Record<string, number>>((acc, item) => {
     const count = acc[item.type] || 0
@@ -69,14 +77,32 @@ export default function DoctorDashboard() {
     return acc
   }, {})
 
+  const manualMarkers = useMemo(() => markers.filter((item) => item.source === 'MANUAL'), [markers])
+
   const loadCases = async () => {
     const res = await api.get('/cases')
     setCases(res.data)
   }
 
+  const loadDoctorProfile = async () => {
+    const res = await api.get('/auth/me')
+    setDoctorName(res.data.full_name || '')
+  }
+
   useEffect(() => {
     loadCases()
+    loadDoctorProfile()
   }, [])
+
+  useEffect(() => {
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!contextMenu) return
+      if (contextMenuRef.current?.contains(event.target as Node)) return
+      setContextMenu(null)
+    }
+    document.addEventListener('mousedown', closeOnOutsideClick)
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick)
+  }, [contextMenu])
 
   useEffect(() => {
     const raw = localStorage.getItem(draftKey)
@@ -85,8 +111,6 @@ export default function DoctorDashboard() {
       const draft = JSON.parse(raw) as DoctorDraft
       setPatientQuery(draft.patientQuery || '')
       setNewPatientEmail(draft.newPatientEmail || '')
-      setDoctorName(draft.doctorName || '')
-      setPatientName(draft.patientName || '')
       setVisitDate(draft.visitDate || '')
       setDisease(draft.disease || '')
       setDirection(draft.direction || '')
@@ -105,8 +129,6 @@ export default function DoctorDashboard() {
     const draft: DoctorDraft = {
       patientQuery,
       newPatientEmail,
-      doctorName,
-      patientName,
       visitDate,
       disease,
       direction,
@@ -118,10 +140,10 @@ export default function DoctorDashboard() {
       selectedPatient,
     }
     localStorage.setItem(draftKey, JSON.stringify(draft))
-  }, [patientQuery, newPatientEmail, doctorName, patientName, visitDate, disease, direction, notes, analysisResult, text, maskedText, markers, selectedPatient])
+  }, [patientQuery, newPatientEmail, visitDate, disease, direction, notes, analysisResult, text, maskedText, markers, selectedPatient])
 
   useEffect(() => {
-    if (patientQuery.trim().length < 2) {
+    if (patientQuery.trim().length < 2 || selectedPatient?.full_name === patientQuery.trim()) {
       setPatientOptions([])
       return
     }
@@ -130,38 +152,54 @@ export default function DoctorDashboard() {
       setPatientOptions(res.data)
     }
     run()
-  }, [patientQuery])
+  }, [patientQuery, selectedPatient])
 
-  const handleContextMenu = (e: React.MouseEvent<HTMLTextAreaElement>) => {
-    const selection = window.getSelection()?.toString() || ''
-    const element = textareaRef.current
-    if (!element) {
-      return
-    }
+  const handleContextMenu = (
+    e: React.MouseEvent<HTMLTextAreaElement>,
+    target: 'text' | 'masked',
+    currentText: string,
+    ref: React.RefObject<HTMLTextAreaElement>,
+  ) => {
+    const element = ref.current
+    if (!element) return
     const start = element.selectionStart
     const end = element.selectionEnd
-    if (!selection || start === end) {
-      return
-    }
+    if (start === end) return
+    const value = currentText.substring(start, end)
+    if (!value.trim()) return
     e.preventDefault()
-    setSelectedText(text.substring(start, end))
-    setContextMenu({ x: e.pageX, y: e.pageY })
+    setSelectionRange({ start, end, value })
+    setSelectedExistingMarker(manualMarkers[0]?.marker || '')
+    setContextMenu({ x: e.pageX, y: e.pageY, target })
   }
 
-  const applyManualMarker = () => {
-    if (!selectedText || !textareaRef.current) {
-      return
+  const updateTextBySelection = (target: 'text' | 'masked', marker: string) => {
+    if (!selectionRange) return
+    const source = target === 'text' ? text : maskedText
+    const updated = source.slice(0, selectionRange.start) + marker + source.slice(selectionRange.end)
+    if (target === 'text') {
+      setText(updated)
+      setMaskedText(updated)
+    } else {
+      setMaskedText(updated)
     }
-    const element = textareaRef.current
-    const start = element.selectionStart
-    const end = element.selectionEnd
+  }
+
+  const applyNewManualMarker = () => {
+    if (!selectionRange || !contextMenu) return
     const nextCount = (markerCounters[selectedType] || 0) + 1
     const marker = `${selectedType}${nextCount}`
-    const updatedText = text.slice(0, start) + marker + text.slice(end)
-    setText(updatedText)
-    setMaskedText(updatedText)
-    setMarkers([...markers, { marker, type: selectedType, original_value: selectedText, source: 'MANUAL' }])
+    updateTextBySelection(contextMenu.target, marker)
+    setMarkers([...markers, { marker, type: selectedType, original_value: selectionRange.value, source: 'MANUAL' }])
     setContextMenu(null)
+    setSelectionRange(null)
+  }
+
+  const attachToExistingMarker = () => {
+    if (!selectedExistingMarker || !contextMenu) return
+    updateTextBySelection(contextMenu.target, selectedExistingMarker)
+    setContextMenu(null)
+    setSelectionRange(null)
   }
 
   const autoDeidentify = async () => {
@@ -173,9 +211,13 @@ export default function DoctorDashboard() {
   const createPatient = async () => {
     const res = await api.post('/patients', { full_name: patientQuery, email: newPatientEmail || undefined })
     setSelectedPatient(res.data)
-    setPatientName(res.data.full_name)
     setPatientQuery(res.data.full_name)
     setPatientOptions([])
+  }
+
+  const openCase = async (caseId: number) => {
+    const res = await api.get(`/cases/${caseId}`)
+    setSelectedCase(res.data)
   }
 
   const markerGroups = useMemo(() => {
@@ -190,7 +232,7 @@ export default function DoctorDashboard() {
     if (!selectedPatient) return
     await api.post('/cases', {
       patient_id: selectedPatient.id,
-      patient_name: patientName,
+      patient_name: patientQuery,
       doctor_name: doctorName,
       visit_date: visitDate,
       disease,
@@ -203,6 +245,8 @@ export default function DoctorDashboard() {
     setText('')
     setMaskedText('')
     setMarkers([])
+    setSelectedPatient(null)
+    setPatientQuery('')
     localStorage.removeItem(draftKey)
     loadCases()
   }
@@ -225,12 +269,15 @@ export default function DoctorDashboard() {
             {patientOptions.length > 0 && (
               <div className="card" style={{ marginTop: 8, padding: 12 }}>
                 {patientOptions.map((patient) => (
-                  <div key={patient.id} style={{ padding: 6, cursor: 'pointer' }} onClick={() => {
-                    setSelectedPatient(patient)
-                    setPatientName(patient.full_name)
-                    setPatientQuery(patient.full_name)
-                    setPatientOptions([])
-                  }}>
+                  <div
+                    key={patient.id}
+                    style={{ padding: 6, cursor: 'pointer' }}
+                    onClick={() => {
+                      setSelectedPatient(patient)
+                      setPatientQuery(patient.full_name)
+                      setPatientOptions([])
+                    }}
+                  >
                     {patient.full_name} {patient.email && <span className="badge">{patient.email}</span>}
                   </div>
                 ))}
@@ -247,10 +294,6 @@ export default function DoctorDashboard() {
           <div>
             <label>ФИО врача</label>
             <input value={doctorName} onChange={(e) => setDoctorName(e.target.value)} />
-          </div>
-          <div>
-            <label>ФИО пациента</label>
-            <input value={patientName} onChange={(e) => setPatientName(e.target.value)} />
           </div>
           <div>
             <label>Дата приема</label>
@@ -276,16 +319,22 @@ export default function DoctorDashboard() {
         <div style={{ marginTop: 16 }}>
           <label>Текст дела</label>
           <textarea
-            ref={textareaRef}
+            ref={textAreaRef}
             rows={6}
             value={text}
             onChange={(e) => setText(e.target.value)}
-            onContextMenu={handleContextMenu}
+            onContextMenu={(e) => handleContextMenu(e, 'text', text, textAreaRef)}
           />
         </div>
         <div style={{ marginTop: 16 }}>
           <label>Обезличенный текст</label>
-          <textarea rows={6} value={maskedText} readOnly />
+          <textarea
+            ref={maskedTextAreaRef}
+            rows={6}
+            value={maskedText}
+            onChange={(e) => setMaskedText(e.target.value)}
+            onContextMenu={(e) => handleContextMenu(e, 'masked', maskedText, maskedTextAreaRef)}
+          />
         </div>
         {markers.length > 0 && (
           <details style={{ marginTop: 16 }}>
@@ -303,15 +352,24 @@ export default function DoctorDashboard() {
           </details>
         )}
         {contextMenu && (
-          <div className="context-menu" style={{ top: contextMenu.y, left: contextMenu.x }}>
+          <div ref={contextMenuRef} className="context-menu" style={{ top: contextMenu.y, left: contextMenu.x }}>
             <div style={{ padding: 10 }}>
-              <label>Тип маркера</label>
+              <label>Новый маркер</label>
               <select value={selectedType} onChange={(e) => setSelectedType(e.target.value)}>
                 {markerTypes.map((type) => (
                   <option key={type} value={type}>{type}</option>
                 ))}
               </select>
-              <button onClick={applyManualMarker} style={{ marginTop: 8 }}>Обезличить</button>
+              <button onClick={applyNewManualMarker} style={{ marginTop: 8 }}>Добавить как новое поле</button>
+
+              <label style={{ marginTop: 10 }}>Присоединить к существующему</label>
+              <select value={selectedExistingMarker} onChange={(e) => setSelectedExistingMarker(e.target.value)}>
+                <option value="">Выберите маркер</option>
+                {manualMarkers.map((item) => (
+                  <option key={item.marker} value={item.marker}>{item.marker} → {item.original_value}</option>
+                ))}
+              </select>
+              <button onClick={attachToExistingMarker} style={{ marginTop: 8 }} disabled={!selectedExistingMarker}>Присоединить</button>
             </div>
           </div>
         )}
@@ -329,6 +387,7 @@ export default function DoctorDashboard() {
               <th>Дата</th>
               <th>Диагноз</th>
               <th>Направление</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -338,11 +397,27 @@ export default function DoctorDashboard() {
                 <td>{item.visit_date}</td>
                 <td>{item.disease}</td>
                 <td>{item.direction}</td>
+                <td><button className="button secondary" onClick={() => openCase(item.id)}>Открыть</button></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {selectedCase && (
+        <div className="card" style={{ marginTop: 24 }}>
+          <h3>Дело #{selectedCase.id}</h3>
+          <p><strong>Пациент:</strong> {selectedCase.patient_name}</p>
+          <p><strong>Врач:</strong> {selectedCase.doctor_name}</p>
+          <p><strong>Дата:</strong> {selectedCase.visit_date}</p>
+          <p><strong>Диагноз:</strong> {selectedCase.disease}</p>
+          <p><strong>Направление:</strong> {selectedCase.direction}</p>
+          <p><strong>Заметки:</strong> {selectedCase.notes}</p>
+          <p><strong>Результат анализа:</strong> {selectedCase.analysis_result}</p>
+          <p><strong>Текст дела:</strong></p>
+          <textarea rows={8} value={selectedCase.text} readOnly />
+        </div>
+      )}
     </div>
   )
 }
