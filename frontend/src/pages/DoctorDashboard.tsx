@@ -99,9 +99,27 @@ export default function DoctorDashboard() {
       if (!contextMenu) return
       if (contextMenuRef.current?.contains(event.target as Node)) return
       setContextMenu(null)
+      setSelectionRange(null)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setContextMenu(null)
+      setSelectionRange(null)
+    }
+    const closeOnViewportChange = () => {
+      setContextMenu(null)
+      setSelectionRange(null)
     }
     document.addEventListener('mousedown', closeOnOutsideClick)
-    return () => document.removeEventListener('mousedown', closeOnOutsideClick)
+    document.addEventListener('keydown', closeOnEscape)
+    window.addEventListener('resize', closeOnViewportChange)
+    window.addEventListener('scroll', closeOnViewportChange, true)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick)
+      document.removeEventListener('keydown', closeOnEscape)
+      window.removeEventListener('resize', closeOnViewportChange)
+      window.removeEventListener('scroll', closeOnViewportChange, true)
+    }
   }, [contextMenu])
 
   useEffect(() => {
@@ -170,7 +188,15 @@ export default function DoctorDashboard() {
     e.preventDefault()
     setSelectionRange({ start, end, value })
     setSelectedExistingMarker(manualMarkers[0]?.marker || '')
-    setContextMenu({ x: e.pageX, y: e.pageY, target })
+    const menuWidth = 280
+    const menuHeight = 260
+    const maxX = Math.max(8, window.innerWidth - menuWidth - 8)
+    const maxY = Math.max(8, window.innerHeight - menuHeight - 8)
+    setContextMenu({
+      x: Math.min(e.clientX, maxX),
+      y: Math.min(e.clientY, maxY),
+      target,
+    })
   }
 
   const updateTextBySelection = (target: 'text' | 'masked', marker: string) => {
@@ -352,7 +378,9 @@ export default function DoctorDashboard() {
           </details>
         )}
         {contextMenu && (
-          <div ref={contextMenuRef} className="context-menu" style={{ top: contextMenu.y, left: contextMenu.x }}>
+          <>
+            <div className="context-menu-backdrop" onClick={() => { setContextMenu(null); setSelectionRange(null) }} />
+            <div ref={contextMenuRef} className="context-menu" style={{ top: contextMenu.y, left: contextMenu.x }}>
             <div style={{ padding: 10 }}>
               <label>Новый маркер</label>
               <select value={selectedType} onChange={(e) => setSelectedType(e.target.value)}>
@@ -371,7 +399,8 @@ export default function DoctorDashboard() {
               </select>
               <button onClick={attachToExistingMarker} style={{ marginTop: 8 }} disabled={!selectedExistingMarker}>Присоединить</button>
             </div>
-          </div>
+            </div>
+          </>
         )}
         <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
           <button className="button secondary" onClick={autoDeidentify}>Обезличить (авто)</button>
